@@ -16,8 +16,11 @@ void VIOModule::OnImageReceived(const ImageData::Ptr imageData) {
     static auto& imageBuffer = ImageBuffer::Instance();
     imageBuffer.PushImage(imageData);
 
-    WakeUpMovers();
-    if (Config::SerialRun) WaitForThingsToBeDone();
+    if (Config::SerialRun) {
+        WakeUpAndWait();
+    } else {
+        WakeUpMovers();
+    }
 }
 
 void VIOModule::SetFrameAdapter(FrameAdapter* adapter) {
@@ -47,6 +50,7 @@ void VIOModule::DoWhatYouNeedToDo() {
     if (Config::MaxRunFPS > 0 && Config::SerialRun) {
         auto sleep_time = 1000.0 / Config::MaxRunFPS - time_cost;
         if (sleep_time > 0) {
+            LOGI("VIOModule::SleepFor %lf ms", sleep_time);
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(static_cast<int>(sleep_time)));
         }

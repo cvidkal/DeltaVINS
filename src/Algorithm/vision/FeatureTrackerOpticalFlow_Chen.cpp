@@ -35,6 +35,24 @@ inline void FeatureTrackerOpticalFlow_Chen::_SetMask(int x, int y) {
     }
 }
 
+bool FeatureTrackerOpticalFlow_Chen::IsStaticLastFrame() {
+    int nPxStatic = 0;
+    int nAllPx = 0;
+    float ratioThresh = 0.3;
+
+    float pxThreshSqr = 0.5 * 0.5;
+
+    for (auto moved_px : last_frame_moved_pixels_sqr_) {
+        if (moved_px < pxThreshSqr) nPxStatic++;
+        nAllPx++;
+    }
+
+    if (nAllPx == 0) return false;
+
+    if (float(nPxStatic) / float(nAllPx) > ratioThresh) return true;
+    return false;
+}
+
 bool FeatureTrackerOpticalFlow_Chen::_IsMasked(int x, int y) {
     auto camModel = SensorConfig::Instance().GetCamModel(image_->sensor_id);
     const int imgStride = camModel->width();
@@ -55,7 +73,7 @@ void FeatureTrackerOpticalFlow_Chen::_ShowMask() {
 }
 
 void FeatureTrackerOpticalFlow_Chen::_ExtractMorePoints(
-    std::list<TrackedFeaturePtr>& vTrackedFeatures) {
+    std::list<LandmarkPtr>& vTrackedFeatures) {
     _ResetMask();
     // Set Mask Pattern
     auto camModel = SensorConfig::Instance().GetCamModel(image_->sensor_id);
@@ -63,7 +81,7 @@ void FeatureTrackerOpticalFlow_Chen::_ExtractMorePoints(
 
     for (auto tf : vTrackedFeatures) {
         if (!tf->flag_dead) {
-            auto xy = tf->visual_obs.back().px;
+            auto xy = tf->last_obs_->px;
             _SetMask(xy.x(), xy.y());
         }
     }
@@ -123,21 +141,23 @@ void FeatureTrackerOpticalFlow_Chen::_ExtractMorePoints(
         // cv::waitKey(0);
     }
 
-    for (size_t i = 0, j = max_num_to_track_ - num_features_tracked_;
-         i < corners.size() && j > 0; ++i) {
-        int x = corners[i].x;
-        int y = corners[i].y;
+    for (size_t corner_idx = 0,
+                track_candidates = max_num_to_track_ - num_features_tracked_;
+         corner_idx < corners.size() && track_candidates > 0; ++corner_idx) {
+        int x = corners[corner_idx].x;
+        int y = corners[corner_idx].y;
         assert(x + y * imgStride < mask_buffer_size_);
         if (mask_[x + y * imgStride]) {
             _SetMask(x, y);
-            j--;
-            auto tf = std::make_shared<Landmark>(image_->sensor_id);
+            track_candidates--;
+            auto tf = std::make_shared<Landmark>();
+            auto obs = cam_state_->AddVisualObservation(Vector2f(x, y));
             if (SensorConfig::Instance()
                     .GetCamModel(image_->sensor_id)
                     ->IsStereo()) {
                 // auto left_model = CamModel::getCamModel(0);
                 // auto right_model = CamModel::getCamModel(1);
-                if (final_status[i]) {
+                if (final_status[corner_idx]) {
                     // Vector2f px1 =
                     //     left_model->camToImage(left_model->imageToCam(
                     //         Vector2f(corners[i].x, corners[i].y)));
@@ -156,10 +176,10 @@ void FeatureTrackerOpticalFlow_Chen::_ExtractMorePoints(
                     // tf->AddVisualObservation(Vector2f(x, y), cam_state_,
                     //                          depth_prior);
                 } else {
-                    tf->AddVisualObservation(Vector2f(x, y), cam_state_);
+                    tf->AddVisualObservation(obs);
                 }
             } else {
-                tf->AddVisualObservation(Vector2f(x, y), cam_state_);
+                tf->AddVisualObservation(obs);
             }
             vTrackedFeatures.push_back(tf);
             ++num_features_;
@@ -171,7 +191,7 @@ void FeatureTrackerOpticalFlow_Chen::_ExtractMorePoints(
 }
 
 void FeatureTrackerOpticalFlow_Chen::_TrackPoints(
-    std::list<TrackedFeaturePtr>& vTrackedFeatures) {
+    std::list<LandmarkPtr>& vTrackedFeatures) {
     if (last_image_ == nullptr) return;
     Matrix3f dR = cam_state_->state->Rwi.transpose() * cam_state0_->state->Rwi;
     std::vector<cv::Point2f> pre, now;
@@ -180,15 +200,16 @@ void FeatureTrackerOpticalFlow_Chen::_TrackPoints(
     goodTracks.reserve(vTrackedFeatures.size());
     pre.reserve(vTrackedFeatures.size());
     now.reserve(vTrackedFeatures.size());
+    last_frame_moved_pixels_sqr_.clear();
 
     auto camModel = SensorConfig::Instance().GetCamModel(image_->sensor_id);
     // float mean_moved_pixels = 0;
     for (auto tf : vTrackedFeatures) {
         if (!tf->flag_dead) {
-            auto& lastVisualOb = tf->visual_obs.back();
+            auto& lastVisualOb = tf->last_obs_;
 
 #if USE_ROTATION_PREDICTION
-            Vector3f ray = dR * lastVisualOb.ray;
+            Vector3f ray = dR * lastVisualOb->ray_in_imu;
 
             Vector2f px = camModel->camToImage(ray);
             if (!camModel->inView(px)) {
@@ -196,18 +217,18 @@ void FeatureTrackerOpticalFlow_Chen::_TrackPoints(
                 continue;
             }
             now.emplace_back(px.x(), px.y());
-            pre.emplace_back(lastVisualOb.px.x(), lastVisualOb.px.y());
+            pre.emplace_back(lastVisualOb->px.x(), lastVisualOb->px.y());
             goodTracks.push_back(tf.get());
             tf->predicted_px = px;
 #else
 #if 0
-                Vector3f ray = dR * lastVisualOb.ray;
+                Vector3f ray = dR * lastVisualOb.ray_in_imu;
 
                 static Matrix3f Rci = camModel->getRci();
                 Vector2f px = camModel->camToImage(Rci * ray);
                 tf->predicted_px = px;
 #endif
-            pre.emplace_back(lastVisualOb.px.x(), lastVisualOb.px.y());
+            pre.emplace_back(lastVisualOb->px.x(), lastVisualOb->px.y());
             now.emplace_back(pre.back());
             goodTracks.push_back(tf.get());
 #endif
@@ -254,9 +275,12 @@ void FeatureTrackerOpticalFlow_Chen::_TrackPoints(
             px.x() = now[i].x;
             px.y() = now[i].y;
             if (camModel->inView(px, 5)) {
+                auto obs = cam_state_->AddVisualObservation(px);
                 num_features_++;
                 num_features_tracked_++;
-                goodTracks[i]->AddVisualObservation(px, cam_state_);
+                goodTracks[i]->AddVisualObservation(obs);
+                last_frame_moved_pixels_sqr_.push_back(
+                    cv::normL2Sqr(&now[i].x, &pre[i].x, 2));
                 continue;
             }
         }
@@ -306,7 +330,7 @@ void FeatureTrackerOpticalFlow_Chen::_PostProcess() {
 }
 
 void FeatureTrackerOpticalFlow_Chen::MatchNewFrame(
-    std::list<TrackedFeaturePtr>& vTrackedFeatures, const ImageData::Ptr image,
+    std::list<LandmarkPtr>& vTrackedFeatures, const ImageData::Ptr image,
     Frame* camState) {
     _PreProcess(image, camState);
 

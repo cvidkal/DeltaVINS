@@ -58,8 +58,9 @@ inline Quaternionf expAndTheta(const Vector3f& omega) {
                        imag_factor * omega.y(), imag_factor * omega.z());
 }
 
-inline Matrix3f crossMat(const Vector3f& x) {
-    Matrix3f X;
+template <typename T>
+inline Matrix3<T> crossMat(const Vector3<T>& x) {
+    Matrix3<T> X;
     X << 0, -x(2), x(1), x(2), 0, -x(0), -x(1), x(0), 0;
     return X;
 }

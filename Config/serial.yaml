@@ -19,3 +19,4 @@ CameraCalibrationPath: ""
 #FeatureTracker Parameters
 MaxNumToTrack: 350
 MaskSize: 41 #Must be Odd
+UseBackTracking: 1

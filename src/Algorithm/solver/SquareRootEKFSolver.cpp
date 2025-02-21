@@ -12,16 +12,9 @@
 #include "utils/utils.h"
 
 namespace DeltaVins {
-SquareRootEKFSolver::SquareRootEKFSolver() {
-    // info_factor_matrix_.resize(MAX_MATRIX_SIZE,MAX_MATRIX_SIZE);
-    // info_factor_matrix_to_marginal_.resize(MAX_MATRIX_SIZE,MAX_MATRIX_SIZE);
-    // residual_.resize(MAX_MATRIX_SIZE,1);
-    //
-    //
-}
+SquareRootEKFSolver::SquareRootEKFSolver() {}
 
-void SquareRootEKFSolver::Init(CamState* pCamState, Vector3f* vel,
-                               bool* static_) {
+void SquareRootEKFSolver::Init(CamState* state, Vector3f* vel, bool* static_) {
     VectorXf p(NEW_STATE_DIM);
 
     switch (Config::DataSourceType) {
@@ -43,9 +36,9 @@ void SquareRootEKFSolver::Init(CamState* pCamState, Vector3f* vel,
         p.cwiseSqrt().cwiseInverse().asDiagonal();
 
     vel_->setZero();
-    AddCamState(pCamState);
+    AddCamState(state);
     cam_states_.clear();
-    cam_states_.push_back(pCamState);
+    cam_states_.push_back(state);
 }
 
 void SquareRootEKFSolver::AddCamState(CamState* state) {
@@ -397,7 +390,6 @@ bool SquareRootEKFSolver::MahalanobisTest(PointState* state) {
     int num_obs = z.rows();
 #if USE_NAIVE_ML_DATAASSOCIATION
     float phi;
-#if USE_KEYFRAME
     static const float ImageNoise2 =
         SensorConfig::Instance().GetCameraParams(0).image_noise *
         SensorConfig::Instance().GetCameraParams(0).image_noise;
@@ -411,7 +403,7 @@ bool SquareRootEKFSolver::MahalanobisTest(PointState* state) {
             0, state->index_in_window * 3 + iLeft, CURRENT_DIM, 3);
         E.rightCols<6>() = info_factor_matrix_after_mariginal_.block(
             0,
-            state->host->visual_obs.back().link_frame->state->index_in_window *
+            state->host->last_obs_->link_frame->state->index_in_window *
                     CAM_STATE_DIM +
                 iLeft + 3 * slam_point_.size(),
             CURRENT_DIM, 6);
@@ -422,11 +414,8 @@ bool SquareRootEKFSolver::MahalanobisTest(PointState* state) {
 
         phi = z.transpose() * S.inverse() * z;
     } else {
-#endif
         phi = z.dot(z) / (2 * ImageNoise2);
-#if USE_KEYFRAME
     }
-#endif
 #else
     MatrixXf S = MatrixXf::Zero(num_obs, num_obs);
     MatrixXf R = MatrixXf::Identity(num_obs, num_obs) * ImageNoise2 * 2;
@@ -496,8 +485,7 @@ int SquareRootEKFSolver::ComputeJacobians(Landmark* track) {
     // observation number
     int index = 0;
 
-    CamModel::Ptr cam_model =
-        SensorConfig::Instance().GetCamModel(track->sensor_id);
+    CamModel::Ptr cam_model = SensorConfig::Instance().GetCamModel(0);
     static Vector3f Tci = cam_model->getTci();
     int num_cams = cam_states_.size();
 
@@ -507,18 +495,16 @@ int SquareRootEKFSolver::ComputeJacobians(Landmark* track) {
 
     int num_obs = track->visual_obs.size();
 
-#if USE_KEYFRAME
     if (track->point_state_->flag_slam_point) {
         num_obs = 1;
     }
-#endif
     // float huberThresh = 500.f;
     float cutOffThresh = 10.f;
 
     // Eigen::Matrix<float,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor> H;
     auto& H = track->point_state_->H;
     H.setZero(num_obs * 2, 3 + (CAM_STATE_DIM * num_cams) + 1);
-    auto calcObsJac = [&](VisualObservation* ob) {
+    auto calcObsJac = [&](VisualObservation::Ptr ob) {
         int cam_id = ob->link_frame->state->index_in_window;
 
         Matrix3f Riw = ob->link_frame->state->Rwi.transpose();
@@ -552,27 +538,21 @@ int SquareRootEKFSolver::ComputeJacobians(Landmark* track) {
         return true;
     };
 
-#if USE_KEYFRAME
     if (track->point_state_->flag_slam_point) {
-        if (calcObsJac(&track->visual_obs.back())) {
+        if (calcObsJac(track->last_obs_)) {
             index++;
         }
         if (index != num_obs) {
             return 0;
         }
     } else {
-#endif
-
         for (auto& ob : track->visual_obs) {
-            if (calcObsJac(&ob)) {
+            if (calcObsJac(ob)) {
                 index++;
             }
         }
-
-#if USE_KEYFRAME
     }
 
-#endif
     if (index != num_obs) {
         if (index < 2) return 0;
         num_obs = index;
@@ -581,8 +561,6 @@ int SquareRootEKFSolver::ComputeJacobians(Landmark* track) {
 
     return 2 * num_obs;
 }
-
-#if USE_KEYFRAME
 
 int SquareRootEKFSolver::_AddNewSlamPointConstraint() {
     int num_obs = 0;
@@ -657,8 +635,6 @@ int SquareRootEKFSolver::AddSlamPointConstraint() {
     return num_obs;
 }
 
-#endif
-
 void SquareRootEKFSolver::AddMsckfPoint(PointState* state) {
     // constexpr int MAX_DIM =
     // 3 + (CAM_STATE_DIM * MAX_WINDOW_SIZE + IMU_STATE_DIM + 1);
@@ -674,12 +650,10 @@ void SquareRootEKFSolver::AddMsckfPoint(PointState* state) {
     msckf_points_.push_back(state);
 }
 
-#if USE_KEYFRAME
 void SquareRootEKFSolver::AddSlamPoint(PointState* state) {
     new_slam_point_.push_back(state);
     state->flag_slam_point = true;
 }
-#endif
 
 void SquareRootEKFSolver::AddVelocityConstraint(int nRows) {
     static float invSigma = 1.0 / 1e-2;
@@ -732,12 +706,8 @@ int SquareRootEKFSolver::StackInformationFactorMatrix() {
     int nVisualObs = 0;
     int rffIdx = 0;
 
-#if USE_KEYFRAME
-
     nVisualObs += _AddNewSlamPointConstraint();
     nCamStartIdx += slam_point_.size() * 3;
-
-#endif
 
     int nOldStates = CURRENT_DIM;
     int nCamStates = cam_states_.size() * CAM_STATE_DIM;
@@ -775,8 +745,6 @@ int SquareRootEKFSolver::StackInformationFactorMatrix() {
 
     int slamPointIdx = IMU_STATE_DIM;
 
-#if USE_KEYFRAME
-
     for (auto& track : slam_point_) {
         if (track->flag_to_marginalize) continue;
         int num_obs = track->H.rows();
@@ -790,8 +758,6 @@ int SquareRootEKFSolver::StackInformationFactorMatrix() {
         obs_residual_.segment(rffIdx, num_obs) = track->H.rightCols<1>();
         rffIdx += num_obs;
     }
-
-#endif
 
     stacked_rows_ = nTotalObs;
     return nTotalObs;
@@ -819,12 +785,10 @@ void SquareRootEKFSolver::SolveAndUpdateStates() {
         *vel_ += dx.segment<3>(iDim + 3);
         iDim += IMU_STATE_DIM;
 
-#if USE_KEYFRAME
         for (auto& pointState : slam_point_) {
             pointState->Pw += dx.segment<3>(iDim);
             iDim += 3;
         }
-#endif
 
         for (auto& camState : cam_states_) {
             camState->Rwi =
@@ -967,7 +931,6 @@ void SquareRootEKFSolver::MarginalizeGivens() {
         v_RemainDIM.push_back(CURRENT_DIM - IMU_STATE_DIM + i);
     }
     iDim = IMU_STATE_DIM;
-#if USE_KEYFRAME
 
     for (int i = 0, n = slam_point_.size(); i < n; ++i) {
         if (slam_point_[i]->flag_to_marginalize ||
@@ -989,7 +952,6 @@ void SquareRootEKFSolver::MarginalizeGivens() {
     for (int i = 0, n = slam_point_.size(); i < n; ++i) {
         slam_point_[i]->index_in_window = i;
     }
-#endif
 
     for (int i = 0, n = cam_states_.size(); i < n; ++i) {
         auto state = cam_states_[i];
@@ -1032,22 +994,11 @@ void SquareRootEKFSolver::MarginalizeGivens() {
     int OLD_DIM = CURRENT_DIM;
     CURRENT_DIM = v_RemainDIM.size();
 
-#if USE_KEYFRAME
-
     info_factor_matrix_after_mariginal_.topLeftCorner(CURRENT_DIM,
                                                       CURRENT_DIM) =
         info_factor_matrix_to_marginal_.block(OLD_DIM - CURRENT_DIM,
                                               OLD_DIM - CURRENT_DIM,
                                               CURRENT_DIM, CURRENT_DIM);
-
-#else
-
-    info_factor_matrix_.topLeftCorner(CURRENT_DIM, CURRENT_DIM) =
-        info_factor_matrix_to_marginal_.block(OLD_DIM - CURRENT_DIM,
-                                              OLD_DIM - CURRENT_DIM,
-                                              CURRENT_DIM, CURRENT_DIM);
-
-#endif
 }
 
 void SquareRootEKFSolver::MarginalizeStatic() {

@@ -7,7 +7,7 @@ namespace DeltaVins {
 struct Frame;
 typedef std::shared_ptr<Frame> FramePtr;
 struct Landmark;
-typedef std::shared_ptr<Landmark> TrackedFeaturePtr;
+typedef std::shared_ptr<Landmark> LandmarkPtr;
 
 struct PointState {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW

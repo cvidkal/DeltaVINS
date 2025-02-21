@@ -24,6 +24,7 @@ class VIOAlgorithm {
     enum class InitState {
         NeedFirstFrame,
         NotInitialized,
+        FirstFrame,
         Initialized,
         Failed
     };
@@ -65,10 +66,8 @@ class VIOAlgorithm {
 
     bool initialized_;
 
-#if USE_KEYFRAME
     Frame::Ptr last_keyframe_ = nullptr;
     void _SelectKeyframe();
-#endif
 
     /************* Output **********************/
 

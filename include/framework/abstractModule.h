@@ -40,6 +40,15 @@ class AbstractModule {
         wake_up_condition_variable_.notify_one();
     }
 
+    void WakeUpAndWait() {
+        std::unique_lock<std::mutex> lck(serial_mutex_);
+        {
+            std::lock_guard<std::mutex> lk(wake_up_mutex_);
+            wake_up_condition_variable_.notify_one();
+        }
+        serial_condition_variable_.wait(lck);
+    }
+
     virtual void RunThread() {
         while (keep_running_) {
             // check for wake up request

@@ -294,7 +294,7 @@ Vector3f FisheyeModel::imageToCam(const Vector2f& px, int cam_id) {
         xyz[2] += r_i * ocam_model->poly[i];
     }
 
-    xyz.normalize();
+    xyz /= xyz.z();
 
     return xyz;
 }

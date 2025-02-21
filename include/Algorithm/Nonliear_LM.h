@@ -1,4 +1,6 @@
 #pragma once
+#include <limits>
+#include <Eigen/Dense>
 
 struct LM_Result {
     bool bConverged;
@@ -32,7 +34,7 @@ class NonLinear_LM {
           };
     ~NonLinear_LM() {}
     void clear();
-    virtual float EvaluateF(bool bNewZ, float huberThresh) = 0;
+    virtual Type EvaluateF(bool bNewZ, Type huberThresh) = 0;
     virtual bool UserDefinedDecentFail() = 0;
     virtual bool UserDefinedConvergeCriteria() = 0;
     void solve();

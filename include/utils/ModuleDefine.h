@@ -14,8 +14,6 @@
 
 #define STATIC_OBSERVER 1
 
-#define USE_KEYFRAME 1
-
 #define USE_HARRIS 0
 
-#define TEST_VISION_MODULE 1
+#define TEST_VISION_MODULE 0

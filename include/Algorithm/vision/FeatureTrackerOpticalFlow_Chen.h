@@ -12,16 +12,17 @@ class FeatureTrackerOpticalFlow_Chen {
      * @param image image
      * @param camState camera state
      */
-    void MatchNewFrame(std::list<TrackedFeaturePtr>& vTrackedFeatures,
+    void MatchNewFrame(std::list<LandmarkPtr>& vTrackedFeatures,
                        const ImageData::Ptr image, Frame* camState);
 
+    bool IsStaticLastFrame();
     ~FeatureTrackerOpticalFlow_Chen();
 
    private:
     void _PreProcess(const ImageData::Ptr image, Frame* camState);
     void _PostProcess();
-    void _ExtractMorePoints(std::list<TrackedFeaturePtr>& vTrackedFeatures);
-    void _TrackPoints(std::list<TrackedFeaturePtr>& vTrackedFeatures);
+    void _ExtractMorePoints(std::list<LandmarkPtr>& vTrackedFeatures);
+    void _TrackPoints(std::list<LandmarkPtr>& vTrackedFeatures);
     void _ExtractFast(const int imgStride, const int halfMaskSize,
                       std::vector<cv::Point2f>& vTemp);
     void _ExtractHarris(std::vector<cv::Point2f>& corners, int max_num);
@@ -48,6 +49,8 @@ class FeatureTrackerOpticalFlow_Chen {
 
     ImageData::Ptr image_;
     ImageData::Ptr last_image_;
+
+    std::vector<float> last_frame_moved_pixels_sqr_;
 };
 
 }  // namespace DeltaVins
