@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 import pandas as pd
+from natsort import natsorted
 
 # each dataset contains a tuple of (ros2 data path, ground truth path)
 OpenLORIS_dataset = [
@@ -107,7 +108,7 @@ def main():
             base_result_path, args.dataset, test_folder_name, os.path.basename(os.path.dirname(data)))
         shell_command = 'mkdir -p {}'.format(result_path)
         DoCommand(shell_command)
-        shell_command = 'cp {} {}'.format(os.path.join(
+        shell_command = 'mv {} {}'.format(os.path.join(
             base_result_path, 'outputPose.tum'), result_path)
         DoCommand(shell_command)
         real_log_file = Path(log_file).resolve()
@@ -115,21 +116,37 @@ def main():
         DoCommand(shell_command)
 
         # evaluate results
-        shell_command = 'evo_rpe tum {} {} -d 15 -u f -r full --save_results {}'.format(
-            ground_truth, os.path.join(result_path, 'outputPose.tum'), os.path.join(result_path, 'results.zip'))
+        shell_command = 'evo_rpe tum {} {} -d 15 -u f -r trans_part --save_results {}'.format(
+            ground_truth, os.path.join(result_path, 'outputPose.tum'), os.path.join(result_path, 'rpe_trans.zip'))
         DoCommand(shell_command)
-        shell_command = 'unzip {} {} -d {}'.format(
-            os.path.join(result_path, 'results.zip'), 'stats.json', result_path)
+        shell_command = 'unzip -p {} {} > {}'.format(
+            os.path.join(result_path, 'rpe_trans.zip'), 'stats.json', os.path.join(result_path, "rpe_trans.json"))
+        DoCommand(shell_command)
+        shell_command = 'evo_rpe tum {} {} -d 15 -u f -r angle_deg --save_results {}'.format(
+            ground_truth, os.path.join(result_path, 'outputPose.tum'), os.path.join(result_path, 'rpe_rot.zip'))
+        DoCommand(shell_command)
+        shell_command = 'unzip -p {} {} > {}'.format(
+            os.path.join(result_path, 'rpe_rot.zip'), 'stats.json', os.path.join(result_path, "rpe_rot.json"))
         DoCommand(shell_command)
 
     # collect evaluation results
     evaluation_list = []
     for root, dirs, files in os.walk(os.path.join(
             base_result_path, args.dataset, test_folder_name)):
-        if 'stats.json' in files:
-            with open(os.path.join(root, 'stats.json'), 'r') as f:
-                evaluation = json.load(f)
+        if 'rpe_trans.json' in files and 'rpe_rot.json' in files:
+            evaluation = {}
+            with open(os.path.join(root, 'rpe_trans.json'), 'r') as f:
+                contents = json.load(f)
+                evaluation["trans_rmse(m)"] = contents["rmse"]
+                evaluation["trans_max(m)"] = contents["max"]
+                evaluation["trans_min(m)"] = contents["min"]
+            with open(os.path.join(root, 'rpe_rot.json'), 'r') as f:
+                contents = json.load(f)
+                evaluation["rot_rmse(deg)"] = contents["rmse"]
+                evaluation["rot_max(deg)"] = contents["max"]
+                evaluation["rot_min(deg)"] = contents["min"]
             evaluation_list.append((os.path.basename(root), evaluation))
+    evaluation_list = natsorted(evaluation_list, key=lambda x: x[0])
     evaluation_list = [{"Dataset": name, **info}
                        for name, info in evaluation_list]
     df = pd.DataFrame(evaluation_list)

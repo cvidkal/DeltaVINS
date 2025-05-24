@@ -160,12 +160,16 @@ void VIOAlgorithm::_PostProcess(ImageData::Ptr data, Pose::Ptr pose) {
     Vwi = states_.vel;
     pose->timestamp = frame_now_->timestamp;
 
-    pose->Pwb = Pwi * 1e3;
-    pose->Rwb = Rwi;
+    static Transform<float> Tib;
+    if (Tib.frame_id.empty()) {
+        Tfs<float>::Instance().GetTransform("imu0", "body", Tib);
+    }
+    pose->Pwb = Pwi + Rwi * Tib.Translation();
+    pose->Rwb = Rwi * Tib.Rotation();
 
     ImuBuffer::Instance().GetBias(bg, ba);
 
-    Quaternionf _q(Rwi);
+    Quaternionf _q(pose->Rwb);
     // auto camModel = SensorConfig::Instance().GetCamModel(0);
     // Eigen::Isometry3f Tci_isometry = Eigen::Isometry3f::Identity();
     // Tci_isometry.linear() = camModel->getRci();
@@ -189,16 +193,17 @@ void VIOAlgorithm::_PostProcess(ImageData::Ptr data, Pose::Ptr pose) {
             file,
             "%lld,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%9.6f,%9.6f,%9.6f,%9.6f,%9.6f,%"
             "9.6f\n",
-            pose->timestamp, Pwi[0], Pwi[1], Pwi[2], _q.w(), _q.x(), _q.y(),
-            _q.z(), Vwi[0], Vwi[1], Vwi[2], bg[0], bg[1], bg[2], ba[0], ba[1],
-            ba[2]);
+            pose->timestamp, pose->Pwb[0], pose->Pwb[1], pose->Pwb[2], _q.w(),
+            _q.x(), _q.y(), _q.z(), Vwi[0], Vwi[1], Vwi[2], bg[0], bg[1], bg[2],
+            ba[0], ba[1], ba[2]);
         fflush(file);
     } else if (Config::OutputFormat == ResultOutputFormat::KITTI) {
         // TODO: Implement KITTI format
         throw std::runtime_error("KITTI format is not implemented");
     } else if (Config::OutputFormat == ResultOutputFormat::TUM) {
         fprintf(file, "%lf %f %f %f %f %f %f %f\n", pose->timestamp / 1e9,
-                Pwi[0], Pwi[1], Pwi[2], _q.x(), _q.y(), _q.z(), _q.w());
+                pose->Pwb[0], pose->Pwb[1], pose->Pwb[2], _q.x(), _q.y(),
+                _q.z(), _q.w());
         fflush(file);
     }
 #endif
