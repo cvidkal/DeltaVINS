@@ -40,7 +40,6 @@ class VIOAlgorithm {
 
     void _PreProcess(const ImageData::Ptr imageData);
     void _PostProcess(ImageData::Ptr data, Pose::Ptr pose);
-    void _UpdatePointsAndCamsToVisualizer();
     void _DrawTrackImage(ImageData::Ptr dataPtr, cv::Mat& trackImage,
                          int cam_id);
     void _DrawPredictImage(ImageData::Ptr dataPtr, cv::Mat& predictImage,
@@ -56,9 +55,14 @@ class VIOAlgorithm {
     void _TestVisionModule(const ImageData::Ptr data, Pose::Ptr pose);
     void _AddMeasurement();
     void _SelectFrames2Margin();
+    void _SelectKeyframe();
 
     bool _VisionStatic();
 
+    void _UpdatePointsAndCamsToVisualizer();
+    void _UpdateFeatureTrackingToVisualizer(ImageData::Ptr image);
+
+   private:
     FeatureTrackerOpticalFlow_Chen* feature_tracker_ = nullptr;
     SquareRootEKFSolver* solver_ = nullptr;
     SystemStates states_;
@@ -69,10 +73,10 @@ class VIOAlgorithm {
     bool initialized_;
 
     Frame::Ptr last_keyframe_ = nullptr;
-    void _SelectKeyframe();
 
     /************* Output **********************/
-
+    std::vector<Frame::Ptr>
+        whole_frames_;  // save all frames for path visualization
     FrameAdapter* frame_adapter_ = nullptr;
     WorldPointAdapter* world_point_adapter_ = nullptr;
     StaticInitializer static_initializer_;
