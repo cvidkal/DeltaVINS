@@ -150,7 +150,6 @@ void VIOAlgorithm::_PreProcess(const ImageData::Ptr imageData) {
 }
 
 void VIOAlgorithm::_PostProcess(ImageData::Ptr data, Pose::Ptr pose) {
-    (void)data;
     Vector3f Pwi, Vwi;
     Vector3f bg, ba;
     auto* camState = frame_now_->state;
@@ -220,46 +219,22 @@ void VIOAlgorithm::_PostProcess(ImageData::Ptr data, Pose::Ptr pose) {
 
 #if ENABLE_VISUALIZER || ENABLE_VISUALIZER_TCP || USE_ROS2
     if (!Config::NoGUI) {
-        cv::Mat trackImage_left;
-        cv::Mat trackImage_right;
-        _DrawTrackImage(data, trackImage_left, 0);
-        bool is_stereo = SensorConfig::Instance().GetCamModel(0)->IsStereo();
-        if (is_stereo) {
-            _DrawTrackImage(data, trackImage_right, 1);
-        }
-        if (frame_adapter_) {
-            frame_adapter_->PushImageTexture(
-                trackImage_left.data, trackImage_left.cols,
-                trackImage_left.rows, trackImage_left.channels(),
-                "track_image_left");
-            if (is_stereo) {
-                frame_adapter_->PushImageTexture(
-                    trackImage_right.data, trackImage_right.cols,
-                    trackImage_right.rows, trackImage_right.channels(),
-                    "track_image_right");
-            }
-            frame_adapter_->FinishFrame();
-        } else {
-            LOGW("frame_adapter_ is nullptr");
-        }
-
-        // cv::imshow("track", trackImage);
-        // imshow("FeatureTrack",trackImage);
-        // waitKey(1);
+        if (whole_frames_.empty()) whole_frames_.reserve(2000);
+        whole_frames_.emplace_back(frame_now_);
+        _UpdatePointsAndCamsToVisualizer();
+        _UpdateFeatureTrackingToVisualizer(data);
     }
 #endif
     TickTock::outputResultConsole();
 }
 
 void VIOAlgorithm::_UpdatePointsAndCamsToVisualizer() {
-#if ENABLE_VISUALIZER || ENABLE_VISUALIZER_TCP || USE_ROS2
-
     static std::vector<WorldPointGL> vPointsGL;
     static std::vector<FrameGL> vFramesGL;
     vPointsGL.clear();
     vFramesGL.clear();
-    vPointsGL.reserve(300);
-    vFramesGL.reserve(100);
+    vPointsGL.reserve(3000);
+    vFramesGL.reserve(2000);
 
     static int visCounter = 0;
 
@@ -267,21 +242,54 @@ void VIOAlgorithm::_UpdatePointsAndCamsToVisualizer() {
         if (lTrack->point_state_ && lTrack->point_state_->flag_slam_point) {
             if (lTrack->point_state_->m_idVis < 0)
                 lTrack->point_state_->m_idVis = visCounter++;
-            vPointsGL.emplace_back(lTrack->point_state_->Pw * 1e3,
+            vPointsGL.emplace_back(lTrack->point_state_->Pw,
                                    lTrack->point_state_->m_idVis);
         }
     }
 
-    for (auto frame : states_.frames_) {
-        vFramesGL.emplace_back(frame->state->Rwi.matrix(),
-                               frame->state->Pwi * 1e3, frame->state->m_id);
+    for (auto frame : whole_frames_) {
+        vFramesGL.emplace_back(frame->state->Rwi.matrix(), frame->state->Pwi,
+                               frame->state->m_id);
     }
-    if (!Config::NoGUI) {
-        assert(frame_adapter_ && world_point_adapter_);
+
+    if (frame_adapter_) {
         frame_adapter_->PushViewMatrix(vFramesGL);
-        world_point_adapter_->PushWorldPoint(vPointsGL);
+    } else {
+        LOGW("frame_adapter_ is nullptr");
     }
-#endif
+    if (world_point_adapter_) {
+        world_point_adapter_->PushWorldPoint(vPointsGL);
+    } else {
+        LOGW("world_point_adapter_ is nullptr");
+    }
+}
+
+void VIOAlgorithm::_UpdateFeatureTrackingToVisualizer(ImageData::Ptr image) {
+    cv::Mat trackImage_left;
+    cv::Mat trackImage_right;
+    _DrawTrackImage(image, trackImage_left, 0);
+    bool is_stereo = SensorConfig::Instance().GetCamModel(0)->IsStereo();
+    if (is_stereo) {
+        _DrawTrackImage(image, trackImage_right, 1);
+    }
+    if (frame_adapter_) {
+        frame_adapter_->PushImageTexture(
+            trackImage_left.data, trackImage_left.cols, trackImage_left.rows,
+            trackImage_left.channels(), "track_image_left");
+        if (is_stereo) {
+            frame_adapter_->PushImageTexture(
+                trackImage_right.data, trackImage_right.cols,
+                trackImage_right.rows, trackImage_right.channels(),
+                "track_image_right");
+        }
+        frame_adapter_->FinishFrame();
+    } else {
+        LOGW("frame_adapter_ is nullptr");
+    }
+
+    // cv::imshow("track", trackImage);
+    // imshow("FeatureTrack",trackImage);
+    // waitKey(1);
 }
 
 void VIOAlgorithm::_DrawTrackImage(ImageData::Ptr dataPtr, cv::Mat& trackImage,
@@ -421,9 +429,6 @@ void VIOAlgorithm::_AddMeasurement() {
 #if ENABLE_VISUALIZER && !defined(PLATFORM_ARM)
     DataAssociation::DrawPointsAfterUpdates(solver_->slam_point_);
     if (!Config::NoGUI) cv::waitKey(5);
-#endif
-#if ENABLE_VISUALIZER_TCP || ENABLE_VISUALIZER || USE_ROS2
-    if (!Config::NoGUI) _UpdatePointsAndCamsToVisualizer();
 #endif
     _RemoveDeadFeatures();
 }
